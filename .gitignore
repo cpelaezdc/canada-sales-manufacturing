@@ -2,3 +2,4 @@ Docker/airflow/logs/*
 Docker/postgresql/postgres-data/*
 
 *.csv
+*.pyc
