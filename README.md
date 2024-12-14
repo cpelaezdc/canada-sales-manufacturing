@@ -27,6 +27,10 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 6.  Environments - Docker
 
 ## Dataset Used
+*  CSV files with meta data.
+*  Dataset
+*  [datasets.zip](Datasets/datasets.zip)
+
 
 
 ## Data Sources
