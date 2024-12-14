@@ -1,0 +1,20 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres_canada-sales
+    ports:
+      - 5434:5432
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=canadasales
+
+volumes:
+  postgres-data:
+    driver: local
+
+
