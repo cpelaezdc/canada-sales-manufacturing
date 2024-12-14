@@ -24,6 +24,7 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 3.  Pipeline software - Airflow
 4.  Data warehouse - PostgreSQL database
 5.  Visualisation - PowerBi
+6.  Environments - Docker
 
 ## Dataset Used
 
