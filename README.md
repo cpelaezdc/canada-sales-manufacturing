@@ -15,7 +15,7 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 
 
 ## Arquitecture
-
+![Arquitecture](Arquitecture/Arquitecture.png)
 
 
 ## Tools:
