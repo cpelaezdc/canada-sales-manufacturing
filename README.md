@@ -33,6 +33,7 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 ## Data Sources
 
 -  Gouverment of Canada - https://open.canada.ca/data/en/dataset/ad32210b-e18b-4a4f-9305-7cea2002b737
+-  Statistics Canada - https://www.statcan.gc.ca/en/developers/csv/user-guide
 -  Building Your First Data Engineering Portfolio: A Step by Step Guide - https://www.youtube.com/watch?v=KIqteLTVLy8
 
 ## Data Model

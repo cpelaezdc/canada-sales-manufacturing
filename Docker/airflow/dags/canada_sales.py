@@ -2,7 +2,9 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator 
 from airflow.hooks.postgres_hook import PostgresHook
+from airflow.utils.task_group import TaskGroup
 from airflow.utils.dates import days_ago
+from sqlalchemy import create_engine, Table, MetaData
 from datetime import datetime
 import pandas as pd
 import os
@@ -10,6 +12,7 @@ import logging
 
 DATASOURCE = "/opt/airflow/datasets"
 OUTPUTPATH = "/opt/airflow/output"
+number_of_chuncks = 19
 
 # Define your column mapping
 column_mapping_csv = {
@@ -31,6 +34,18 @@ column_mapping_csv = {
     'TERMINATED': 'terminated',
     'DECIMALS': 'decimals'
 }
+
+column_mapping_province = {
+    'DGUID': 'id',
+    'GEO': 'name'
+}
+
+dim_province_schema = [
+    ("id","INT PRIMARY KEY"),
+    ("name","VARCHAR(50)"),
+    ("latitude","VARCHAR(10)"),
+    ("longitude","VARCHAR(10)")
+]
 
 fact_sales_schema = [
         ("date", "VARCHAR(255)"),
@@ -67,42 +82,92 @@ def split_csv(file_path, chunk_size=200):
     num_rows = len(df)
     rows_per_chunk = num_rows // 20
 
-    for i in range(19):  # Process the first 9 chunks
+    for i in range(number_of_chuncks):  # Process the first 9 chunks
         start_idx = i * rows_per_chunk
-        end_idx = (i+1) * rows_per_chunk
+
+        if i == (number_of_chuncks-1):
+            end_idx = num_rows
+        else:
+            end_idx = (i+1) * rows_per_chunk
+        
         chunk_df = df.iloc[start_idx:end_idx]
         chunk_filename = os.path.join(OUTPUTPATH, f"chunk_{chunk_counter}.csv")
         chunk_df.to_csv(chunk_filename, index=False)
         chunk_counter += 1
 
-    # Process the last chunk, including any remaining rows
-    start_idx = 9 * rows_per_chunk
-    end_idx = num_rows
-    last_chunk_df = df.iloc[start_idx:end_idx]
-    #last_chunk_filename = os.path.join(os.path.dirname(file_path), f"chunk_{chunk_counter}.csv")
-    last_chunk_filename = os.path.join(OUTPUTPATH, f"chunk_{chunk_counter}.csv")
-    last_chunk_df.to_csv(last_chunk_filename, index=False)
 
-
-def load_data_to_postgres(file_path,table_name,postgres_conn_id,column_mapping):
+def load_data_to_postgres(path_files,table_name,postgres_conn_id,column_mapping):
     """Loads the extracted data into a PostgreSQL table."""
-    df = pd.read_csv(file_path)
 
-    print('before')
+    for i in range(number_of_chuncks):  # Process all chuncks
+        chunk_filename = os.path.join(path_files,f"chunk_{i}.csv")
 
-     # Rename the columns
-    #df.rename(columns=column_mapping, inplace=True)
-    df.rename(columns=column_mapping)
+        print(chunk_filename)
 
-    print('after')
+        df = pd.read_csv(chunk_filename)
+        
+        # Rename the columns
+        df.rename(columns=column_mapping_csv, inplace=True)
+
+        print(df.shape[0])
+
+        # Establish a connection to PostgresSQL
+        postgres_hook = PostgresHook(postgres_conn_id=postgres_conn_id)
+        engine = postgres_hook.get_sqlalchemy_engine()
+
+        # Insert data into the specified table
+        df.to_sql(table_name,engine,if_exists='append',index=False)
+        print(f"Data from {chunk_filename} inserted into table {table_name}")
+
+def load_data_to_province_table(path_files,table_name,postgres_conn_id,column_mapping):
+    """Loads the extracted data into a PostgreSQL table."""
+
+    df_unique = pd.DataFrame()
+
+    # Check all files to get all the provinces
+    for i in range(number_of_chuncks):  # Process all chuncks
+        chunk_filename = os.path.join(path_files,f"chunk_{i}.csv")
+
+        columns_to_load = ['DGUID','GEO']
+
+        #specify columns to load
+        df = pd.read_csv(chunk_filename,usecols=columns_to_load)
+        
+        # drop duplicates
+        df_unique = pd.concat([df_unique,df.drop_duplicates()], ignore_index=True,join='outer')
+
+    df_unique.rename(columns=column_mapping, inplace=True)
     
+    df_province = df_unique.drop_duplicates()
+    # The last to chars in the string is the id province
+    df_province['id'] = df_province['id'].str[-2:]
+    #drop any nulls
+    df_province = df_province.dropna()
+
+    # Add this two new columns
+    df_province['longitude'] = "toDefine"
+    df_province['latitude'] = "toDefine"
+
+    print('Number of provinces: ' + str(df_province.shape[0]))
+
     # Establish a connection to PostgresSQL
     postgres_hook = PostgresHook(postgres_conn_id=postgres_conn_id)
     engine = postgres_hook.get_sqlalchemy_engine()
 
+    # Validate that doesn't exist in table
+    existing_data = pd.read_sql_query(f"SELECT * FROM {table_name}",engine)
+    # Change to numeric to compare with dataframe from table (id is integer in table)
+    df_province['id'] = pd.to_numeric(df_province['id'],errors='coerce')
+    #  Get only the new rows, filter by id
+    df_new_rows = df_province[~df_province['id'].isin(existing_data['id'])].dropna()
+
     # Insert data into the specified table
-    df.to_sql(table_name,engine,if_exists='append',index=False)
-    print(f"Data from {file_path} inserted into table {table_name}")
+    if not df_new_rows.empty:
+        df_new_rows.to_sql(table_name,engine,if_exists='append',index=False)
+        print(f"Data from province dataframe inserted into table {table_name}")
+    else:
+        print("No new rows to insert")
+
 
 def create_postgres_table(dag,table_name,columns):
     """Creates a PostgreSQL table using an Airflow operator
@@ -136,7 +201,14 @@ with DAG(
     schedule_interval=None,
 ) as dag:
 
-    create_sales_table = create_postgres_table(dag,"fact_sales",fact_sales_schema)
+    with TaskGroup("create_tables") as create_tables:
+        create_province_table = create_postgres_table(dag,"dim_province",dim_province_schema)
+        create_sales_table = create_postgres_table(dag,"fact_sales",fact_sales_schema)
+
+        create_province_table >> create_sales_table
+
+
+
 
     split_task = PythonOperator(
         task_id='split_csv',
@@ -144,15 +216,25 @@ with DAG(
         op_kwargs={'file_path': f'{DATASOURCE}/16100048.csv'}
     )
 
+    load_data_to_province_table = PythonOperator(
+            task_id='load_data_to_province_table',
+            python_callable=load_data_to_province_table,
+            op_kwargs={'path_files': f'{OUTPUTPATH}',
+                    'table_name': 'dim_province',
+                    'postgres_conn_id': 'postgres_canada_sales',
+                    'column_mapping': column_mapping_province},
+            dag=dag,
+        )
+
     load_data_to_postgres = PythonOperator(
         task_id='load_data_to_postgres',
         python_callable=load_data_to_postgres,
-        op_kwargs={'file_path': f'{OUTPUTPATH}/chunk_0.csv',
+        op_kwargs={'path_files': f'{OUTPUTPATH}',
                    'table_name': 'fact_sales',
                    'postgres_conn_id': 'postgres_canada_sales',
-                   'column_mapping': f'{column_mapping_csv}'},
+                   'column_mapping': column_mapping_csv},
         dag=dag,
     )
-
     
-    create_sales_table >> split_task >> load_data_to_postgres
+    create_tables >> split_task >> load_data_to_province_table >> load_data_to_postgres
+    #create_tables >> split_task >> load_data_to_province_table
