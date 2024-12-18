@@ -6,36 +6,29 @@ from airflow.utils.task_group import TaskGroup
 from airflow.utils.dates import days_ago
 import pandas as pd
 import os
-
+import re
 
 DATASOURCE = "/opt/airflow/datasets"
 OUTPUTPATH = "/opt/airflow/output"
 number_of_chuncks = 19
 
 # Define your column mapping
-column_mapping_csv = {
-    'REF_DATE': 'date',
-    'GEO': 'geo',
-    'DGUID': 'dguid',
-    'Principal statistics' : 'principal',
-    'Seasonal adjustment': 'seasonal_adjustment',
-    'North American Industry Classification System (NAICS)': 'naics',
-    'UOM': 'uom',
-    'UOM_ID': 'uom_id',
-    'SCALAR_FACTOR': 'scalar_factor',
-    'SCALAR_ID': 'scalar_id',
-    'VECTOR': 'vector',
-    'COORDINATE': 'coordinate',
+column_mapping_sales = {
+    'REF_DATE': 'date_sales',
+    'GEO': 'name_province',
+    'DGUID': 'id_province',
+    'North American Industry Classification System (NAICS)': 'name_naics',
     'VALUE': 'value',
-    'STATUS': 'status',
-    'SYMBOL': 'symbol',
-    'TERMINATED': 'terminated',
-    'DECIMALS': 'decimals'
 }
 
 column_mapping_province = {
-    'DGUID': 'id',
-    'GEO': 'name'
+    'id_province': 'id',
+    'name_province': 'name'
+}
+
+column_mapping_naics = {
+    'id_naics': 'id',
+    'name_naics': 'name'
 }
 
 dim_province_schema = [
@@ -45,27 +38,19 @@ dim_province_schema = [
     ("longitude","VARCHAR(20)")
 ]
 
-fact_sales_schema = [
-        ("date", "VARCHAR(255)"),
-        ("geo", "VARCHAR(255)"),
-        ("dguid", "VARCHAR(255)"),
-        ("principal", "VARCHAR(255)"),
-        ("seasonal_adjustment", "VARCHAR(255)"),
-        ("naics", "VARCHAR(255)"),
-        ("uom", "VARCHAR(255)"),
-        ("uom_id", "VARCHAR(255)"),
-        ("scalar_factor", "VARCHAR(255)"),
-        ("scalar_id", "VARCHAR(255)"),
-        ("vector", "VARCHAR(255)"),
-        ("coordinate", "VARCHAR(255)"),
-        ("value", "VARCHAR(255)"),
-        ("status", "VARCHAR(255)"),
-        ("symbol", "VARCHAR(255)"),
-        ("terminated", "VARCHAR(255)"),
-        ("decimals", "VARCHAR(255)")
-    ]
+dim_naics_schema = [
+    ("id","VARCHAR(10) PRIMARY KEY"),
+    ("name","VARCHAR(100)")
+]
 
-def split_csv(file_path, chunk_size=200):
+fact_sales_schema = [
+    ("date_sales", "DATE"),
+    ("id_province","INT REFERENCES dim_province(id)"),
+    ("id_naics",   "VARCHAR(10) REFERENCES dim_naics(id)"),
+    ("value", "double precision")
+]
+
+def split_file(file_path, chunk_size=200):
     """Splits a CSV file into smaller chunks, saving them in the same directory.
 
     Args:
@@ -77,6 +62,11 @@ def split_csv(file_path, chunk_size=200):
     chunk_counter = 0
 
     df = pd.read_csv(file_path)
+    # drop not necessary columns
+    df = df.drop(['Principal statistics','Seasonal adjustment','UOM','UOM_ID','SCALAR_FACTOR','SCALAR_ID','VECTOR','COORDINATE','STATUS','SYMBOL','TERMINATED','DECIMALS'],axis=1)
+    # delete rows with nulls
+    df = df.dropna()
+
     num_rows = len(df)
     rows_per_chunk = num_rows // 20
 
@@ -94,36 +84,75 @@ def split_csv(file_path, chunk_size=200):
         chunk_counter += 1
 
 
-def extract_csv_data(path_files,**kwargs):
+def extract_csv_data(path_files,columns_name,**kwargs):
     """Extracts data from a CSV file and stores it in XCom."""
     df_unique = pd.DataFrame()
 
     # Check all files to get all the provinces
     for i in range(number_of_chuncks):  # Process all chuncks
         chunk_filename = os.path.join(path_files,f"chunk_{i}.csv")
-        columns_to_load = ['DGUID','GEO']
+        columns_to_load = columns_name
         #specify columns to load
         df = pd.read_csv(chunk_filename,usecols=columns_to_load)
         # drop duplicates
         df_unique = pd.concat([df_unique,df.drop_duplicates()], ignore_index=True,join='outer')
+
+        df_unique = df_unique.drop_duplicates()
     
     kwargs['ti'].xcom_push(key='df_unique', value=df_unique.to_dict())
 
 
-def transform_provinces(path_file,column_mapping,task_name,ti):
+def transform_sales(column_mapping,prior_task,ti):
     try:
-        df_province = ti.xcom_pull(key='df_unique', task_ids=task_name)
+        df_sales = ti.xcom_pull(key='df_unique', task_ids=prior_task)
+        df_sales = pd.DataFrame.from_dict(df_sales)
+    except Exception as e:
+        print(f"Error pullin XCom: {e}")
+
+    print(f'number of items before transform {str(df_sales.shape[0])}')
+
+    df_sales.rename(columns=column_mapping, inplace=True)
+
+    # transform date to insert as date type, add day as 01
+    df_sales['date_sales'] = df_sales['date_sales'] + '-01'
+    # The last two chars is the province id
+    df_sales['id_province'] = df_sales['id_province'].str[-2:]
+
+    # Extract the id using a regular expression
+    df_sales['id_naics'] = df_sales['name_naics'].str.extract( r' \[(.*?)\]')
+    # Remove the code from the name column if needed 
+    df_sales['name_naics'] = df_sales['name_naics'].str.replace(r'\s* \[.*\]', '', regex=True)
+
+    df_sales_to_naics = df_sales.copy()
+    df_sales_to_naics = df_sales_to_naics.drop(['date_sales','value','name_province','id_province'],axis=1)
+
+    df_sales_to_province = df_sales.copy()
+    df_sales_to_province = df_sales_to_province.drop(['date_sales','value','id_naics','name_naics'],axis=1)
+
+    df_sales = df_sales.drop(['name_naics','name_province'],axis=1)
+
+    df_sales = df_sales.dropna()
+    df_sales = df_sales.drop_duplicates()
+    
+    print(df_sales.head(5))
+    print(f'number of items after transform {str(df_sales.shape[0])}')
+
+    ti.xcom_push(key='df_sales', value=df_sales.to_dict())
+    ti.xcom_push(key='df_sales_to_naics', value=df_sales_to_naics.to_dict())
+    ti.xcom_push(key='df_sales_to_province', value=df_sales_to_province.to_dict())
+
+def transform_provinces(path_file,column_mapping,prior_task,ti):
+    try:
+        df_province = ti.xcom_pull(key='df_sales_to_province', task_ids=prior_task)
         df_province = pd.DataFrame.from_dict(df_province)
     except Exception as e:
         print(f"Error pullin XCom: {e}")
 
     df_province.rename(columns=column_mapping, inplace=True)
 
-    print(df_province)
+    print(df_province.head(5))
     
     df_province = df_province.drop_duplicates()
-    # The last to chars in the string is the id province
-    df_province['id'] = df_province['id'].str[-2:]
     #drop any nulls
     df_province = df_province.dropna()
     # Merge with another dataframe to get longitude and latitude
@@ -136,21 +165,56 @@ def transform_provinces(path_file,column_mapping,task_name,ti):
 
     ti.xcom_push(key='df_province', value=df_province.to_dict())
 
-def load_data(table_name,pk_column,postgres_conn_id,key_df,task_name,**kwargs):
-    df = kwargs['ti'].xcom_pull(key=key_df, task_ids=task_name)
-    df = pd.DataFrame.from_dict(df)
+def transform_naics(column_mapping,prior_task,ti):
+    try:
+        df_naics = ti.xcom_pull(key='df_sales_to_naics', task_ids=prior_task)
+        df_naics = pd.DataFrame.from_dict(df_naics)
+    except Exception as e:
+        print(f"Error pullin XCom: {e}")
 
-    print(f'key is {key_df} and previous task is {task_name}')
-    print(df)
+    print(f'print first five: {df_naics.head(5)}')    
+    print(f'number of items before transform {str(df_naics.shape[0])}')
 
+    # Delete null values and drop duplicates
+    df_naics = df_naics.dropna()
+    df_naics = df_naics.drop_duplicates()
+    # rename columns
+    df_naics.rename(columns=column_mapping, inplace=True)
+
+    # Trim the naics column 
+    df_naics['name'] = df_naics['name'].str.strip()
+    # print null values
+    df_nulls = df_naics[df_naics.isnull().any(axis=1)]
+    print(df_nulls)
+    
+    print(f'print first five: {df_naics.head(5)}')    
+    print(f'number of items after transform {str(df_naics.shape[0])}')
+
+    ti.xcom_push(key='df_naics', value=df_naics.to_dict())
+
+def load_data(table_name,pk_column,postgres_conn_id,key_df,prior_task,**kwargs):
+    try:
+        df = kwargs['ti'].xcom_pull(key=key_df, task_ids=prior_task)
+        df = pd.DataFrame.from_dict(df)
+    except Exception as e:
+        print(f"Error pullin XCom: {e}")
+
+    print(f'key is {key_df} and previous task is {prior_task}')
+    
      # Establish a connection to PostgresSQL
     postgres_hook = PostgresHook(postgres_conn_id=postgres_conn_id)
     engine = postgres_hook.get_sqlalchemy_engine()
 
     # Validate that doesn't exist in table
     existing_data = pd.read_sql_query(f"SELECT * FROM {table_name}",engine)
+    print(f'types in database: {existing_data.dtypes}')
+    print(f'types in dataframe: {df.dtypes}')
+
     # Change to numeric to compare with dataframe from table (id is integer in table)
-    df[pk_column] = pd.to_numeric(df[pk_column],errors='coerce')
+    if df[pk_column].dtype != existing_data[pk_column].dtype:
+        if existing_data[pk_column].dtype == 'int64':
+            df[pk_column] = pd.to_numeric(df[pk_column],errors='coerce')
+    
     #  Get only the new rows, filter by id
     df_new_rows = df[~df[pk_column].isin(existing_data[pk_column])].dropna()
 
@@ -162,30 +226,21 @@ def load_data(table_name,pk_column,postgres_conn_id,key_df,task_name,**kwargs):
         print("No new rows to insert")
 
 
-def load_data_to_postgres(path_files,table_name,postgres_conn_id,column_mapping):
+def load_sales(table_name,postgres_conn_id,prior_task,ti):
     """Loads the extracted data into a PostgreSQL table."""
+    try:
+        df_sales = ti.xcom_pull(key='df_sales', task_ids=prior_task)
+        df_sales = pd.DataFrame.from_dict(df_sales)
+    except Exception as e:
+        print(f"Error pullin XCom: {e}")
 
-    for i in range(number_of_chuncks):  # Process all chuncks
-        chunk_filename = os.path.join(path_files,f"chunk_{i}.csv")
+    # Establish a connection to PostgresSQL
+    postgres_hook = PostgresHook(postgres_conn_id=postgres_conn_id)
+    engine = postgres_hook.get_sqlalchemy_engine()
 
-        print(chunk_filename)
-
-        df = pd.read_csv(chunk_filename)
-        
-        # Rename the columns
-        df.rename(columns=column_mapping_csv, inplace=True)
-
-        print(df.shape[0])
-
-        # Establish a connection to PostgresSQL
-        postgres_hook = PostgresHook(postgres_conn_id=postgres_conn_id)
-        engine = postgres_hook.get_sqlalchemy_engine()
-
-        # Insert data into the specified table
-        df.to_sql(table_name,engine,if_exists='append',index=False)
-        print(f"Data from {chunk_filename} inserted into table {table_name}")
-
-
+    # Insert data into the specified table
+    df_sales.to_sql(table_name,engine,if_exists='append',index=False)
+    
 def create_postgres_table(dag,table_name,columns):
     """Creates a PostgreSQL table using an Airflow operator
     
@@ -201,7 +256,6 @@ def create_postgres_table(dag,table_name,columns):
         
         )
     """
-
     create_table_task = PostgresOperator(
         task_id=f"create_{table_name}_table",
         postgres_conn_id="postgres_canada_sales", #Replace with corresponding connection
@@ -211,32 +265,45 @@ def create_postgres_table(dag,table_name,columns):
 
     return create_table_task
 
+def clean_directory(path_files):
+    """Finds all files in a directory that start with 'chunk'.
+         Args:
+            directory: The directory to search.
+        Returns:
+            A list of file paths.
+    """
+    for filename in os.listdir(path_files):
+        if filename.startswith("chunk"):
+            file_path = os.path.join(path_files, filename)
+            os.remove(file_path)
+            print(f"Deleted file: {file_path}")
 
 with DAG(
-    'split_csv_dag',
+    'pipeline_canada_sales',
     start_date=days_ago(1),
     schedule_interval=None,
 ) as dag:
 
     with TaskGroup("create_tables") as create_tables:
         create_province_table = create_postgres_table(dag,"dim_province",dim_province_schema)
+        create_naics_table = create_postgres_table(dag,"dim_naics",dim_naics_schema)
         create_sales_table = create_postgres_table(dag,"fact_sales",fact_sales_schema)
 
-        create_province_table >> create_sales_table
+        [create_province_table,create_naics_table] >> create_sales_table
+
+
+    split_file = PythonOperator(
+        task_id='split_file',
+        python_callable=split_file,
+        op_kwargs={'file_path': f'{DATASOURCE}/16100048.csv'}
+    )
 
     with TaskGroup("ETL_provinces") as ETL_provinces:
-        extract_provinces = PythonOperator(
-            task_id='extract_provinces',
-            python_callable=extract_csv_data,
-            op_kwargs={'path_files': f'{OUTPUTPATH}',
-                        'table_name': 'dim_province'}
-        )
-
         transform_provinces = PythonOperator(
             task_id='transform_provinces',
             python_callable=transform_provinces,
             op_kwargs={'path_file': f'{DATASOURCE}/canada_provinces_lon_lat.csvf',
-                       'task_name': 'ETL_provinces.extract_provinces',
+                       'prior_task': 'ETL_sales.transform_sales',
                         'column_mapping': column_mapping_province}
         )
 
@@ -246,30 +313,67 @@ with DAG(
             op_kwargs={'key_df': 'df_province',
                         'table_name': 'dim_province',
                         'pk_column': 'id',
-                        'task_name': 'ETL_provinces.transform_provinces',
+                        'prior_task': 'ETL_provinces.transform_provinces',
                         'postgres_conn_id': 'postgres_canada_sales'}
         )
 
-        extract_provinces >> transform_provinces >> load_provinces
+        transform_provinces >> load_provinces
 
-    
-    """split_task = PythonOperator(
-        task_id='split_csv',
-        python_callable=split_csv,
-        op_kwargs={'file_path': f'{DATASOURCE}/16100048.csv'}
-    )"""
+    with TaskGroup("ETL_naics") as ETL_naics:
+        transform_naics = PythonOperator(
+            task_id='transform_naics',
+            python_callable=transform_naics,
+            op_kwargs={'prior_task': 'ETL_sales.transform_sales',
+                       'column_mapping': column_mapping_naics}
+        )
 
-    """load_data_to_postgres = PythonOperator(
-        task_id='load_data_to_postgres',
-        python_callable=load_data_to_postgres,
-        op_kwargs={'path_files': f'{OUTPUTPATH}',
-                   'table_name': 'fact_sales',
-                   'postgres_conn_id': 'postgres_canada_sales',
-                   'column_mapping': column_mapping_csv},
-        dag=dag,
-    )"""
+        load_naics = PythonOperator(
+            task_id='load_naics',
+            python_callable=load_data,
+            op_kwargs={'key_df': 'df_naics',
+                        'table_name': 'dim_naics',
+                        'pk_column': 'id',
+                        'prior_task': 'ETL_naics.transform_naics',
+                        'postgres_conn_id': 'postgres_canada_sales'}
+        )
+
+        transform_naics >> load_naics
+
+
+    with TaskGroup("ETL_sales") as ETL_sales:
+
+        extract_sales = PythonOperator(
+            task_id='extract_sales',
+            python_callable=extract_csv_data,
+            op_kwargs={'path_files': f'{OUTPUTPATH}',
+                       'columns_name': ['REF_DATE','GEO','DGUID','North American Industry Classification System (NAICS)','VALUE']}
+        )
+
+        transform_sales = PythonOperator (
+            task_id='transform_sales',
+            python_callable=transform_sales,
+            op_kwargs={'prior_task': 'ETL_sales.extract_sales',
+                       'column_mapping': column_mapping_sales}
+        )
+
+        extract_sales >> transform_sales
+
+    load_sales = PythonOperator(
+            task_id='load_sales',
+            python_callable=load_sales,
+            op_kwargs={'path_files': f'{OUTPUTPATH}',
+                    'table_name': 'fact_sales',
+                    'prior_task': 'ETL_sales.transform_sales',
+                    'postgres_conn_id': 'postgres_canada_sales'}
+        )
     
-    create_tables >> ETL_provinces
+    clean_directory = PythonOperator(
+            task_id='clean_directory',
+            python_callable=clean_directory,
+            op_kwargs={'path_files': f'{OUTPUTPATH}'}
+        )
+
+   
+    [create_tables,split_file] >> ETL_sales >> [ETL_provinces, ETL_naics] >> load_sales >> clean_directory
     
-    #create_tables >> split_task >> ETL_provinces >> load_data_to_postgres
-    
+  
