@@ -4,11 +4,9 @@ from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.hooks.postgres_hook import PostgresHook
 from airflow.utils.task_group import TaskGroup
 from airflow.utils.dates import days_ago
-from sqlalchemy import create_engine, Table, MetaData
-from datetime import datetime
 import pandas as pd
 import os
-import logging
+
 
 DATASOURCE = "/opt/airflow/datasets"
 OUTPUTPATH = "/opt/airflow/output"
@@ -43,8 +41,8 @@ column_mapping_province = {
 dim_province_schema = [
     ("id","INT PRIMARY KEY"),
     ("name","VARCHAR(50)"),
-    ("latitude","VARCHAR(10)"),
-    ("longitude","VARCHAR(10)")
+    ("latitude","VARCHAR(20)"),
+    ("longitude","VARCHAR(20)")
 ]
 
 fact_sales_schema = [
@@ -96,6 +94,74 @@ def split_csv(file_path, chunk_size=200):
         chunk_counter += 1
 
 
+def extract_csv_data(path_files,**kwargs):
+    """Extracts data from a CSV file and stores it in XCom."""
+    df_unique = pd.DataFrame()
+
+    # Check all files to get all the provinces
+    for i in range(number_of_chuncks):  # Process all chuncks
+        chunk_filename = os.path.join(path_files,f"chunk_{i}.csv")
+        columns_to_load = ['DGUID','GEO']
+        #specify columns to load
+        df = pd.read_csv(chunk_filename,usecols=columns_to_load)
+        # drop duplicates
+        df_unique = pd.concat([df_unique,df.drop_duplicates()], ignore_index=True,join='outer')
+    
+    kwargs['ti'].xcom_push(key='df_unique', value=df_unique.to_dict())
+
+
+def transform_provinces(path_file,column_mapping,task_name,ti):
+    try:
+        df_province = ti.xcom_pull(key='df_unique', task_ids=task_name)
+        df_province = pd.DataFrame.from_dict(df_province)
+    except Exception as e:
+        print(f"Error pullin XCom: {e}")
+
+    df_province.rename(columns=column_mapping, inplace=True)
+
+    print(df_province)
+    
+    df_province = df_province.drop_duplicates()
+    # The last to chars in the string is the id province
+    df_province['id'] = df_province['id'].str[-2:]
+    #drop any nulls
+    df_province = df_province.dropna()
+    # Merge with another dataframe to get longitude and latitude
+    province_lon_lat = path_file
+    df_province_lon_lat = pd.read_csv(province_lon_lat)
+    df_province = pd.merge(df_province, df_province_lon_lat, on='name')
+
+    print('Number of provinces: ' + str(df_province.shape[0]))
+    print(df_province)
+
+    ti.xcom_push(key='df_province', value=df_province.to_dict())
+
+def load_data(table_name,pk_column,postgres_conn_id,key_df,task_name,**kwargs):
+    df = kwargs['ti'].xcom_pull(key=key_df, task_ids=task_name)
+    df = pd.DataFrame.from_dict(df)
+
+    print(f'key is {key_df} and previous task is {task_name}')
+    print(df)
+
+     # Establish a connection to PostgresSQL
+    postgres_hook = PostgresHook(postgres_conn_id=postgres_conn_id)
+    engine = postgres_hook.get_sqlalchemy_engine()
+
+    # Validate that doesn't exist in table
+    existing_data = pd.read_sql_query(f"SELECT * FROM {table_name}",engine)
+    # Change to numeric to compare with dataframe from table (id is integer in table)
+    df[pk_column] = pd.to_numeric(df[pk_column],errors='coerce')
+    #  Get only the new rows, filter by id
+    df_new_rows = df[~df[pk_column].isin(existing_data[pk_column])].dropna()
+
+    # Insert data into the specified table
+    if not df_new_rows.empty:
+        df_new_rows.to_sql(table_name,engine,if_exists='append',index=False)
+        print(f"Data from {key_df} dataframe inserted into table {table_name}")
+    else:
+        print("No new rows to insert")
+
+
 def load_data_to_postgres(path_files,table_name,postgres_conn_id,column_mapping):
     """Loads the extracted data into a PostgreSQL table."""
 
@@ -118,55 +184,6 @@ def load_data_to_postgres(path_files,table_name,postgres_conn_id,column_mapping)
         # Insert data into the specified table
         df.to_sql(table_name,engine,if_exists='append',index=False)
         print(f"Data from {chunk_filename} inserted into table {table_name}")
-
-def load_data_to_province_table(path_files,table_name,postgres_conn_id,column_mapping):
-    """Loads the extracted data into a PostgreSQL table."""
-
-    df_unique = pd.DataFrame()
-
-    # Check all files to get all the provinces
-    for i in range(number_of_chuncks):  # Process all chuncks
-        chunk_filename = os.path.join(path_files,f"chunk_{i}.csv")
-
-        columns_to_load = ['DGUID','GEO']
-
-        #specify columns to load
-        df = pd.read_csv(chunk_filename,usecols=columns_to_load)
-        
-        # drop duplicates
-        df_unique = pd.concat([df_unique,df.drop_duplicates()], ignore_index=True,join='outer')
-
-    df_unique.rename(columns=column_mapping, inplace=True)
-    
-    df_province = df_unique.drop_duplicates()
-    # The last to chars in the string is the id province
-    df_province['id'] = df_province['id'].str[-2:]
-    #drop any nulls
-    df_province = df_province.dropna()
-
-    # Add this two new columns
-    df_province['longitude'] = "toDefine"
-    df_province['latitude'] = "toDefine"
-
-    print('Number of provinces: ' + str(df_province.shape[0]))
-
-    # Establish a connection to PostgresSQL
-    postgres_hook = PostgresHook(postgres_conn_id=postgres_conn_id)
-    engine = postgres_hook.get_sqlalchemy_engine()
-
-    # Validate that doesn't exist in table
-    existing_data = pd.read_sql_query(f"SELECT * FROM {table_name}",engine)
-    # Change to numeric to compare with dataframe from table (id is integer in table)
-    df_province['id'] = pd.to_numeric(df_province['id'],errors='coerce')
-    #  Get only the new rows, filter by id
-    df_new_rows = df_province[~df_province['id'].isin(existing_data['id'])].dropna()
-
-    # Insert data into the specified table
-    if not df_new_rows.empty:
-        df_new_rows.to_sql(table_name,engine,if_exists='append',index=False)
-        print(f"Data from province dataframe inserted into table {table_name}")
-    else:
-        print("No new rows to insert")
 
 
 def create_postgres_table(dag,table_name,columns):
@@ -207,26 +224,42 @@ with DAG(
 
         create_province_table >> create_sales_table
 
+    with TaskGroup("ETL_provinces") as ETL_provinces:
+        extract_provinces = PythonOperator(
+            task_id='extract_provinces',
+            python_callable=extract_csv_data,
+            op_kwargs={'path_files': f'{OUTPUTPATH}',
+                        'table_name': 'dim_province'}
+        )
 
+        transform_provinces = PythonOperator(
+            task_id='transform_provinces',
+            python_callable=transform_provinces,
+            op_kwargs={'path_file': f'{DATASOURCE}/canada_provinces_lon_lat.csvf',
+                       'task_name': 'ETL_provinces.extract_provinces',
+                        'column_mapping': column_mapping_province}
+        )
 
+        load_provinces = PythonOperator(
+            task_id='load_provinces',
+            python_callable=load_data,
+            op_kwargs={'key_df': 'df_province',
+                        'table_name': 'dim_province',
+                        'pk_column': 'id',
+                        'task_name': 'ETL_provinces.transform_provinces',
+                        'postgres_conn_id': 'postgres_canada_sales'}
+        )
 
-    split_task = PythonOperator(
+        extract_provinces >> transform_provinces >> load_provinces
+
+    
+    """split_task = PythonOperator(
         task_id='split_csv',
         python_callable=split_csv,
         op_kwargs={'file_path': f'{DATASOURCE}/16100048.csv'}
-    )
+    )"""
 
-    load_data_to_province_table = PythonOperator(
-            task_id='load_data_to_province_table',
-            python_callable=load_data_to_province_table,
-            op_kwargs={'path_files': f'{OUTPUTPATH}',
-                    'table_name': 'dim_province',
-                    'postgres_conn_id': 'postgres_canada_sales',
-                    'column_mapping': column_mapping_province},
-            dag=dag,
-        )
-
-    load_data_to_postgres = PythonOperator(
+    """load_data_to_postgres = PythonOperator(
         task_id='load_data_to_postgres',
         python_callable=load_data_to_postgres,
         op_kwargs={'path_files': f'{OUTPUTPATH}',
@@ -234,7 +267,9 @@ with DAG(
                    'postgres_conn_id': 'postgres_canada_sales',
                    'column_mapping': column_mapping_csv},
         dag=dag,
-    )
+    )"""
     
-    create_tables >> split_task >> load_data_to_province_table >> load_data_to_postgres
-    #create_tables >> split_task >> load_data_to_province_table
+    create_tables >> ETL_provinces
+    
+    #create_tables >> split_task >> ETL_provinces >> load_data_to_postgres
+    
