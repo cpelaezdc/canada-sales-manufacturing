@@ -42,12 +42,12 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 
 
 ## Environments
-*  Airflow [docker-compose.yml](Docker/docker_compose_airflow/docker-compose.yml)
+*  Airflow [docker-compose.yml](Docker/airflow/docker-compose.yml)
 *  PosgreSQL 
 
 ## Scripts
 
-*  [Dags](Docker/docker_compose_airflow/dags/)
+*  [Dags](Docker/airflow/dags/)
 
 
 
