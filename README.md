@@ -23,7 +23,7 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 2.  Scripting Language - SQL
 3.  Pipeline software - Airflow
 4.  Data warehouse - PostgreSQL database
-5.  Visualisation - PowerBi (pending)
+5.  Visualisation - PowerBI
 6.  Environments - Docker
 
 ## Dataset Used
@@ -47,6 +47,14 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 ## Scripts
 
 *  [Dags](Docker/airflow/dags/)
+
+## Visualisations
+
+* Canada Sales [Canada_Manufacturing_Sales](Visualisation/)
+
+![Dashboard](Visualisation/dashboard_powerBI_1.png)
+
+
 
 
 
