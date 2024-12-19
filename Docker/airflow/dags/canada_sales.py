@@ -17,8 +17,13 @@ column_mapping_sales = {
     'REF_DATE': 'date_sales',
     'GEO': 'name_province',
     'DGUID': 'id_province',
+    'Seasonal adjustment': 'name_seasonal_adjustment',
     'North American Industry Classification System (NAICS)': 'name_naics',
     'VALUE': 'value',
+}
+
+column_mapping_seasonal_adjustments = {
+    'name_seasonal_adjustment': 'name'
 }
 
 column_mapping_province = {
@@ -46,8 +51,14 @@ dim_naics_schema = [
 fact_sales_schema = [
     ("date_sales", "DATE"),
     ("id_province","INT REFERENCES dim_province(id)"),
+    ("id_seasonal","INT REFERENCES dim_seasonal_adjustment(id)"),
     ("id_naics",   "VARCHAR(10) REFERENCES dim_naics(id)"),
     ("value", "double precision")
+]
+
+dim_seasonal_adjustment_schema = [
+    ("id","INT PRIMARY KEY"),
+    ("name","VARCHAR(50)")
 ]
 
 def split_file(file_path, chunk_size=200):
@@ -63,7 +74,7 @@ def split_file(file_path, chunk_size=200):
 
     df = pd.read_csv(file_path)
     # drop not necessary columns
-    df = df.drop(['Principal statistics','Seasonal adjustment','UOM','UOM_ID','SCALAR_FACTOR','SCALAR_ID','VECTOR','COORDINATE','STATUS','SYMBOL','TERMINATED','DECIMALS'],axis=1)
+    df = df.drop(['Principal statistics','UOM','UOM_ID','SCALAR_FACTOR','SCALAR_ID','VECTOR','COORDINATE','STATUS','SYMBOL','TERMINATED','DECIMALS'],axis=1)
     # delete rows with nulls
     df = df.dropna()
 
@@ -109,6 +120,7 @@ def transform_sales(column_mapping,prior_task,ti):
     except Exception as e:
         print(f"Error pullin XCom: {e}")
 
+    print(list(df_sales.columns))
     print(f'number of items before transform {str(df_sales.shape[0])}')
 
     df_sales.rename(columns=column_mapping, inplace=True)
@@ -123,23 +135,46 @@ def transform_sales(column_mapping,prior_task,ti):
     # Remove the code from the name column if needed 
     df_sales['name_naics'] = df_sales['name_naics'].str.replace(r'\s* \[.*\]', '', regex=True)
 
-    df_sales_to_naics = df_sales.copy()
-    df_sales_to_naics = df_sales_to_naics.drop(['date_sales','value','name_province','id_province'],axis=1)
-
-    df_sales_to_province = df_sales.copy()
-    df_sales_to_province = df_sales_to_province.drop(['date_sales','value','id_naics','name_naics'],axis=1)
-
-    df_sales = df_sales.drop(['name_naics','name_province'],axis=1)
-
+    print(list(df_sales.columns))
+    # Get the unique values of the seasonal adjustment
+    df_sales_to_seasonal_adjustment = df_sales[['name_seasonal_adjustment']].drop_duplicates().copy()
+    # Get the unique values of the naics 
+    df_sales_to_naics = df_sales[['id_naics','name_naics']].drop_duplicates().copy()
+    # Get the unique values of the province
+    df_sales_to_province = df_sales[['id_province','name_province']].drop_duplicates().copy()
+    # Drop duplicates from the main dataframe and drop nulls
+    df_sales = df_sales[['date_sales','id_province','name_seasonal_adjustment','id_naics','value']].drop_duplicates().copy()   
     df_sales = df_sales.dropna()
-    df_sales = df_sales.drop_duplicates()
     
     print(df_sales.head(5))
     print(f'number of items after transform {str(df_sales.shape[0])}')
 
     ti.xcom_push(key='df_sales', value=df_sales.to_dict())
+    ti.xcom_push(key='df_sales_to_seasonal_adjustment', value=df_sales_to_seasonal_adjustment.to_dict())
     ti.xcom_push(key='df_sales_to_naics', value=df_sales_to_naics.to_dict())
     ti.xcom_push(key='df_sales_to_province', value=df_sales_to_province.to_dict())
+
+def transform_seasonal_adjustment(column_mapping,prior_task,ti):
+    try:
+        df_seasonal_adjustment = ti.xcom_pull(key='df_sales_to_seasonal_adjustment', task_ids=prior_task)
+        df_seasonal_adjustment = pd.DataFrame.from_dict(df_seasonal_adjustment)
+    except Exception as e:
+        print(f"Error pullin XCom: {e}")
+
+    print(f'number of items before transform {str(df_seasonal_adjustment.shape[0])}')
+
+    df_seasonal_adjustment.rename(columns=column_mapping, inplace=True)
+
+    df_seasonal_adjustment = df_seasonal_adjustment.drop_duplicates()
+    df_seasonal_adjustment = df_seasonal_adjustment.dropna()
+
+    # Add an id column
+    df_seasonal_adjustment['id'] = range(1, len(df_seasonal_adjustment) + 1)
+        
+    print(df_seasonal_adjustment.head(5))
+    print(f'number of items after transform {str(df_seasonal_adjustment.shape[0])}')
+
+    ti.xcom_push(key='df_seasonal_adjustment', value=df_seasonal_adjustment.to_dict())
 
 def transform_provinces(path_file,column_mapping,prior_task,ti):
     try:
@@ -231,8 +266,17 @@ def load_sales(table_name,postgres_conn_id,prior_task,ti):
     try:
         df_sales = ti.xcom_pull(key='df_sales', task_ids=prior_task)
         df_sales = pd.DataFrame.from_dict(df_sales)
+        df_seasonal_adjustment = ti.xcom_pull(key='df_seasonal_adjustment', task_ids='ETL_seasonal_adjustment.transform_seasonal_adjustment')
+        df_seasonal_adjustment = pd.DataFrame.from_dict(df_seasonal_adjustment)
     except Exception as e:
         print(f"Error pullin XCom: {e}")
+
+    print(f'number of items before load {str(df_sales.shape[0])}')
+
+    # Merge the dataframes to get the id of the seasonal adjustment
+    df_sales = pd.merge(df_sales, df_seasonal_adjustment, left_on='name_seasonal_adjustment', right_on='name', how='inner') 
+    df_sales = df_sales.drop(['name_seasonal_adjustment','name'],axis=1)
+    df_sales.rename(columns={'id':'id_seasonal'}, inplace=True) 
 
     # Establish a connection to PostgresSQL
     postgres_hook = PostgresHook(postgres_conn_id=postgres_conn_id)
@@ -287,16 +331,36 @@ with DAG(
     with TaskGroup("create_tables") as create_tables:
         create_province_table = create_postgres_table(dag,"dim_province",dim_province_schema)
         create_naics_table = create_postgres_table(dag,"dim_naics",dim_naics_schema)
+        create_seasonal_adjustment_table = create_postgres_table(dag,"dim_seasonal_adjustment",dim_seasonal_adjustment_schema)
         create_sales_table = create_postgres_table(dag,"fact_sales",fact_sales_schema)
 
-        [create_province_table,create_naics_table] >> create_sales_table
-
+        [create_seasonal_adjustment_table,create_province_table,create_naics_table] >> create_sales_table
 
     split_file = PythonOperator(
         task_id='split_file',
         python_callable=split_file,
         op_kwargs={'file_path': f'{DATASOURCE}/16100048.csv'}
     )
+
+    with TaskGroup("ETL_seasonal_adjustment") as ETL_seasonal_adjustment:
+        transform_seasonal_adjustment = PythonOperator(
+            task_id='transform_seasonal_adjustment',
+            python_callable=transform_seasonal_adjustment,
+            op_kwargs={'prior_task': 'ETL_sales.transform_sales',
+                       'column_mapping': column_mapping_seasonal_adjustments,}
+        )
+
+        load_seasonal_adjustment = PythonOperator(
+            task_id='load_seasonal_adjustment',
+            python_callable=load_data,
+            op_kwargs={'key_df': 'df_seasonal_adjustment',
+                        'table_name': 'dim_seasonal_adjustment',
+                        'pk_column': 'id',
+                        'prior_task': 'ETL_seasonal_adjustment.transform_seasonal_adjustment',
+                        'postgres_conn_id': 'postgres_canada_sales'}
+        )
+
+        transform_seasonal_adjustment >> load_seasonal_adjustment
 
     with TaskGroup("ETL_provinces") as ETL_provinces:
         transform_provinces = PythonOperator(
@@ -339,14 +403,13 @@ with DAG(
 
         transform_naics >> load_naics
 
-
     with TaskGroup("ETL_sales") as ETL_sales:
 
         extract_sales = PythonOperator(
             task_id='extract_sales',
             python_callable=extract_csv_data,
             op_kwargs={'path_files': f'{OUTPUTPATH}',
-                       'columns_name': ['REF_DATE','GEO','DGUID','North American Industry Classification System (NAICS)','VALUE']}
+                       'columns_name': ['REF_DATE','GEO','DGUID','Seasonal adjustment','North American Industry Classification System (NAICS)','VALUE']}
         )
 
         transform_sales = PythonOperator (
@@ -374,6 +437,6 @@ with DAG(
         )
 
    
-    [create_tables,split_file] >> ETL_sales >> [ETL_provinces, ETL_naics] >> load_sales >> clean_directory
+    [create_tables,split_file] >> ETL_sales >> [ETL_provinces, ETL_naics,ETL_seasonal_adjustment] >> load_sales >> clean_directory
     
   

@@ -38,6 +38,8 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 -  Building Your First Data Engineering Portfolio: A Step by Step Guide - https://www.youtube.com/watch?v=KIqteLTVLy8
 
 ## Data Model
+![DataModel](/Data_model/data_model.png)
+
 
 ## Environments
 *  Airflow [docker-compose.yml](Docker/docker_compose_airflow/docker-compose.yml)
