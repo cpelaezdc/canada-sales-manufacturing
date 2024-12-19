@@ -23,7 +23,7 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 2.  Scripting Language - SQL
 3.  Pipeline software - Airflow
 4.  Data warehouse - PostgreSQL database
-5.  Visualisation - PowerBi
+5.  Visualisation - PowerBi (pending)
 6.  Environments - Docker
 
 ## Dataset Used
@@ -35,7 +35,6 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 -  Gouverment of Canada - https://open.canada.ca/data/en/dataset/ad32210b-e18b-4a4f-9305-7cea2002b737
 -  Statistics Canada - https://www.statcan.gc.ca/en/developers/csv/user-guide
 -  List of all state's in Canada with Latitude and Longitude - https://geokeo.com/database/state/ca/
--  Building Your First Data Engineering Portfolio: A Step by Step Guide - https://www.youtube.com/watch?v=KIqteLTVLy8
 
 ## Data Model
 ![DataModel](/Data_model/data_model.png)
@@ -43,7 +42,7 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 
 ## Environments
 *  Airflow [docker-compose.yml](Docker/airflow/docker-compose.yml)
-*  PosgreSQL 
+*  PosgreSQL [docker-compose.yml](Docker/postgresql/docker-compose.yml) 
 
 ## Scripts
 
