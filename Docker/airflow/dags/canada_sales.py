@@ -4,13 +4,12 @@ from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.hooks.postgres_hook import PostgresHook
 from airflow.utils.task_group import TaskGroup
 from airflow.utils.dates import days_ago
+from airflow.models import Variable
+from datetime import timedelta, datetime
 import pandas as pd
 import os
-import re
 
 DATASOURCE = "/opt/airflow/datasets"
-OUTPUTPATH = "/opt/airflow/output"
-number_of_chuncks = 19
 
 # Define your column mapping
 column_mapping_sales = {
@@ -56,66 +55,133 @@ fact_sales_schema = [
     ("value", "double precision")
 ]
 
+dim_file_log_schema = [
+    ("id","SERIAL PRIMARY KEY"),
+    ("date_sales","DATE"),
+    ("file_name","VARCHAR(100)"),
+    ("file_date","TIMESTAMP"),
+    ("status","VARCHAR(20)")
+]
+
 dim_seasonal_adjustment_schema = [
     ("id","INT PRIMARY KEY"),
     ("name","VARCHAR(50)")
 ]
 
-def split_file(file_path, chunk_size=200):
-    """Splits a CSV file into smaller chunks, saving them in the same directory.
+def find_oldest_file(folder_path):
+  """
+  Finds the oldest file in a given folder based on its creation time.
+
+  Args:
+    folder_path: The path to the folder containing the files.
+
+  Returns:
+    The full path of the oldest file, or None if no files are found.
+  """
+  try:
+    files = os.listdir(folder_path)
+    oldest_file = None
+    oldest_time = None
+
+    for file in files:
+      file_path = os.path.join(folder_path, file)
+      creation_time = datetime.fromtimestamp(os.path.getctime(file_path)) 
+
+      if oldest_time is None or creation_time < oldest_time:
+        oldest_file = file_path
+        oldest_time = creation_time
+
+    return oldest_file
+
+  except FileNotFoundError:
+    print(f"Folder not found: {folder_path}")
+    return None
+  except Exception as e:
+    print(f"An error occurred: {e}")
+    return None
+
+def load_file_into_dataframe():
+    """Loads a CSV file into a Pandas DataFrame.
 
     Args:
-        file_path (str): Path to the CSV file.
-        chunk_size (int, optional): Approximate size of each chunk in MB. Defaults to 200.
+        file_path (str): The path to the CSV file.
     """
+
+    csv_input_folder = Variable.get("csv_input_folder")
+
+    df = pd.read_csv(f'{DATASOURCE}/{Variable.get("dataset_canada_sales")}')
+    print(df.head(2))
+
+    # Validate if there is a date in airflow variable last_date_canada_sales
+    last_date = Variable.get("last_date_canada_sales")
+
+    if last_date == '0000-00':
+        print("there are not date")
+        last_date = Variable.get("start_date_canada_sales")
+        print(f"last date will be {last_date}")
+    else:
+        # Take the last date with format yyyy-mm and add 1 month
+        last_date = pd.to_datetime(last_date)
+        last_date = last_date + pd.DateOffset(months=1)
+        last_date = last_date.strftime('%Y-%m')
+        print(f"last date will be {last_date}")
     
-    chunk_size_bytes = chunk_size * 1024 * 1024
-    chunk_counter = 0
+    # Send to a new dataframe the rows where column REF_DATE is equal to last_date
+    df_last_date = df[df['REF_DATE'] == last_date]
+    # print number of rows
+    print(f'number of rows with date {last_date} is {df_last_date.shape[0]}')
+    # print first five rows
+    print(df_last_date.head(5))
 
-    df = pd.read_csv(file_path)
-    # drop not necessary columns
-    df = df.drop(['Principal statistics','UOM','UOM_ID','SCALAR_FACTOR','SCALAR_ID','VECTOR','COORDINATE','STATUS','SYMBOL','TERMINATED','DECIMALS'],axis=1)
-    # delete rows with nulls
-    df = df.dropna()
+    # save to csv file this dataframe with the last date and replace file if exists
+    # only if number of rows is greater than 0
+    if df_last_date.shape[0] > 0:
+        df_last_date.to_csv(f'{csv_input_folder}/{last_date}.csv', index=False)
+        # validate that the file was created
+        if f'{csv_input_folder}/{last_date}.csv':
+            print(f"File {last_date}.csv created")
+            # update airflow variable last_date_canada_sales
+            Variable.set("last_date_canada_sales",last_date) 
+    else:
+        print(f"No rows found with date {last_date}")
 
-    num_rows = len(df)
-    rows_per_chunk = num_rows // 20
-
-    for i in range(number_of_chuncks):  # Process the first 9 chunks
-        start_idx = i * rows_per_chunk
-
-        if i == (number_of_chuncks-1):
-            end_idx = num_rows
-        else:
-            end_idx = (i+1) * rows_per_chunk
-        
-        chunk_df = df.iloc[start_idx:end_idx]
-        chunk_filename = os.path.join(OUTPUTPATH, f"chunk_{chunk_counter}.csv")
-        chunk_df.to_csv(chunk_filename, index=False)
-        chunk_counter += 1
+    
 
 
-def extract_csv_data(path_files,columns_name,**kwargs):
+def extract_sales(columns_to_load,**kwargs):
     """Extracts data from a CSV file and stores it in XCom."""
-    df_unique = pd.DataFrame()
+    # find in airflow variable the directory where the files are stored
+    path_files = Variable.get("csv_input_folder")
+    print(f"Path files: {path_files}")
 
-    # Check all files to get all the provinces
-    for i in range(number_of_chuncks):  # Process all chuncks
-        chunk_filename = os.path.join(path_files,f"chunk_{i}.csv")
-        columns_to_load = columns_name
-        #specify columns to load
-        df = pd.read_csv(chunk_filename,usecols=columns_to_load)
-        # drop duplicates
-        df_unique = pd.concat([df_unique,df.drop_duplicates()], ignore_index=True,join='outer')
+    # Get the oldest file in the folder bassed in the file name YYY-MM
+    file_to_process = find_oldest_file(path_files)
+    print(f"File to process: {file_to_process}")
 
-        df_unique = df_unique.drop_duplicates()
-    
-    kwargs['ti'].xcom_push(key='df_unique', value=df_unique.to_dict())
+    # load the file into a dataframe
+    df = pd.read_csv(file_to_process,usecols=columns_to_load)
+    # Get the number of rows
+    print(f'number of items before transform {str(df.shape[0])}')
+    print(f'columns: {list(df.columns)}')
+    print(f'the 5 first rows are: {df.head(5)}')
+
+    # Drop rows with null values
+    df = df.dropna()
+    # Drop duplicates
+    df = df.drop_duplicates()
+    # Get the number of rows
+    print(f'number of items after transform {str(df.shape[0])}')
+    print(f'the 5 first rows are: {df.head(5)}')
+
+    # Send the dataframe to XCom
+    kwargs['ti'].xcom_push(key='df_extract_sales', value=df.to_dict())
+    # send the file name to XCom
+    kwargs['ti'].xcom_push(key='file_name', value=file_to_process)  
 
 
 def transform_sales(column_mapping,prior_task,ti):
     try:
-        df_sales = ti.xcom_pull(key='df_unique', task_ids=prior_task)
+        df_sales = ti.xcom_pull(key='df_extract_sales', task_ids=prior_task)
         df_sales = pd.DataFrame.from_dict(df_sales)
     except Exception as e:
         print(f"Error pullin XCom: {e}")
@@ -285,6 +351,25 @@ def load_sales(table_name,postgres_conn_id,prior_task,ti):
     # Insert data into the specified table
     df_sales.to_sql(table_name,engine,if_exists='append',index=False)
     
+def load_file_log(table_name,postgres_conn_id,prior_task,ti):
+    """Loads the extracted data into a PostgreSQL table."""
+    try:
+        file_name = ti.xcom_pull(key='file_name', task_ids=prior_task)
+    except Exception as e:
+        print(f"Error pullin XCom: {e}")
+
+    # Establish a connection to PostgresSQL
+    postgres_hook = PostgresHook(postgres_conn_id=postgres_conn_id)
+    engine = postgres_hook.get_sqlalchemy_engine()
+
+    # extract for file_name variable name only the file without the path
+    file_name = os.path.basename(file_name)
+
+    # Insert data into the specified table
+    df = pd.DataFrame({'date_sales': [file_name[:7]], 'file_name': [file_name], 'file_date': [datetime.now()], 'status': ['Processed']})
+    df.to_sql(table_name,engine,if_exists='append',index=False)
+
+
 def create_postgres_table(dag,table_name,columns):
     """Creates a PostgreSQL table using an Airflow operator
     
@@ -309,38 +394,39 @@ def create_postgres_table(dag,table_name,columns):
 
     return create_table_task
 
-def clean_directory(path_files):
+def clean_directory(prior_task,ti):
     """Finds all files in a directory that start with 'chunk'.
          Args:
             directory: The directory to search.
         Returns:
             A list of file paths.
     """
-    for filename in os.listdir(path_files):
-        if filename.startswith("chunk"):
-            file_path = os.path.join(path_files, filename)
-            os.remove(file_path)
-            print(f"Deleted file: {file_path}")
+    try:
+        file_to_delete = ti.xcom_pull(key='file_name', task_ids=prior_task)
+    except Exception as e:
+        print(f"Error pullin XCom: {e}")
+
+    print(f"File to delete: {file_to_delete}")
+    os.remove(file_to_delete)
+    print(f"File {file_to_delete} deleted")
+
 
 with DAG(
-    'pipeline_canada_sales',
-    start_date=days_ago(1),
-    schedule_interval=None,
+    dag_id='pipeline_canada_sales',
+    start_date=days_ago(0),
+    schedule_interval=timedelta(seconds=20),
+    catchup=False,
+    max_active_runs=1
 ) as dag:
 
     with TaskGroup("create_tables") as create_tables:
+        create_file_log_table = create_postgres_table(dag,"dim_file_log",dim_file_log_schema)
         create_province_table = create_postgres_table(dag,"dim_province",dim_province_schema)
         create_naics_table = create_postgres_table(dag,"dim_naics",dim_naics_schema)
         create_seasonal_adjustment_table = create_postgres_table(dag,"dim_seasonal_adjustment",dim_seasonal_adjustment_schema)
         create_sales_table = create_postgres_table(dag,"fact_sales",fact_sales_schema)
 
         [create_seasonal_adjustment_table,create_province_table,create_naics_table] >> create_sales_table
-
-    split_file = PythonOperator(
-        task_id='split_file',
-        python_callable=split_file,
-        op_kwargs={'file_path': f'{DATASOURCE}/16100048.csv'}
-    )
 
     with TaskGroup("ETL_seasonal_adjustment") as ETL_seasonal_adjustment:
         transform_seasonal_adjustment = PythonOperator(
@@ -407,9 +493,8 @@ with DAG(
 
         extract_sales = PythonOperator(
             task_id='extract_sales',
-            python_callable=extract_csv_data,
-            op_kwargs={'path_files': f'{OUTPUTPATH}',
-                       'columns_name': ['REF_DATE','GEO','DGUID','Seasonal adjustment','North American Industry Classification System (NAICS)','VALUE']}
+            python_callable=extract_sales,
+            op_kwargs={'columns_to_load': ['REF_DATE','GEO','DGUID','Seasonal adjustment','North American Industry Classification System (NAICS)','VALUE']}
         )
 
         transform_sales = PythonOperator (
@@ -424,19 +509,43 @@ with DAG(
     load_sales = PythonOperator(
             task_id='load_sales',
             python_callable=load_sales,
-            op_kwargs={'path_files': f'{OUTPUTPATH}',
-                    'table_name': 'fact_sales',
+            op_kwargs={'table_name': 'fact_sales',
                     'prior_task': 'ETL_sales.transform_sales',
                     'postgres_conn_id': 'postgres_canada_sales'}
         )
     
+    load_file_log = PythonOperator(
+        task_id='load_file_log',
+        python_callable=load_file_log,
+        op_kwargs={ 'table_name': 'dim_file_log',
+                    'prior_task': 'ETL_sales.extract_sales',
+                    'postgres_conn_id': 'postgres_canada_sales'}
+    )
+    
     clean_directory = PythonOperator(
             task_id='clean_directory',
             python_callable=clean_directory,
-            op_kwargs={'path_files': f'{OUTPUTPATH}'}
+            op_kwargs={'prior_task': 'ETL_sales.extract_sales'}
         )
 
    
-    [create_tables,split_file] >> ETL_sales >> [ETL_provinces, ETL_naics,ETL_seasonal_adjustment] >> load_sales >> clean_directory
+    create_tables >> ETL_sales >> [ETL_provinces, ETL_naics,ETL_seasonal_adjustment] >> load_sales >> load_file_log >> clean_directory
     
   
+with DAG(
+    dag_id='load_file_into_dataframe',
+    start_date=datetime.now(),
+    schedule_interval=timedelta(seconds=10),
+    catchup=False,
+    max_active_runs=1
+) as dag:
+    
+    load_file_into_dataframe = PythonOperator(
+        task_id='load_file_into_dataframe',
+        python_callable=load_file_into_dataframe
+        
+    )
+    
+    load_file_into_dataframe
+
+
