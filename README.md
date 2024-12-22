@@ -26,35 +26,28 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 5.  Visualisation - PowerBI
 6.  Environments - Docker
 
-## Dataset Used
-*  Meta Data 16100048_MetaData.csv - [datasets.zip](Datasets/datasets.zip)
-*  Dataset 16100048.csv - [datasets.zip](Datasets/datasets.zip)
-
-## Data Sources
-
--  Gouverment of Canada - https://open.canada.ca/data/en/dataset/ad32210b-e18b-4a4f-9305-7cea2002b737
--  Statistics Canada - https://www.statcan.gc.ca/en/developers/csv/user-guide
--  List of all state's in Canada with Latitude and Longitude - https://geokeo.com/database/state/ca/
-
 ## Data Model
 ![DataModel](/Data_model/data_model.png)
-
 
 ## Environments
 *  Airflow [docker-compose.yml](Docker/airflow/docker-compose.yml)
 *  PosgreSQL [docker-compose.yml](Docker/postgresql/docker-compose.yml) 
 
 ## Scripts
-
 *  [Dags](Docker/airflow/dags/)
 
 ## Visualisations
-
 * Canada Sales [Canada_Manufacturing_Sales](Visualisation/)
 
 ![Dashboard](Visualisation/dashboard_powerBI_1.png)
 
+## Dataset Used
+*  Dataset 16100048.csv - [datasets.zip](Datasets/datasets.zip)
 
+## Data Sources
+-  Gouverment of Canada - https://open.canada.ca/data/en/dataset/ad32210b-e18b-4a4f-9305-7cea2002b737
+-  Statistics Canada - https://www.statcan.gc.ca/en/developers/csv/user-guide
+-  List of all state's in Canada with Latitude and Longitude - https://geokeo.com/database/state/ca/
 
 
 
