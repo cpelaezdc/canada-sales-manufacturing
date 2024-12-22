@@ -57,7 +57,7 @@ fact_sales_schema = [
 
 dim_file_log_schema = [
     ("id","SERIAL PRIMARY KEY"),
-    ("date_sales","DATE"),
+    ("date_sales","VARCHAR(7)"),
     ("file_name","VARCHAR(100)"),
     ("file_date","TIMESTAMP"),
     ("status","VARCHAR(20)")
