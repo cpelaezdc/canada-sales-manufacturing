@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
     "image": "mcr.microsoft.com/devcontainers/python:3.10",
     "customizations": {
       "vscode": {
@@ -17,3 +18,9 @@
     "postCreateCommand": "bash ./lab_setup.sh"
   }
   // DevContainer Reference: https://code.visualstudio.com/docs/remote/devcontainerjson-reference
+=======
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "features": {
+  }
+}
+>>>>>>> 546d87d7793d39b0131408ce47ad3c3bd69b6d2c
