@@ -1,0 +1,6 @@
+{
+    "csv_input_folder": "/opt/airflow/datasets/extraction",
+    "dataset_canada_sales": "16100048.csv",
+    "last_date_canada_sales": "0000-00",
+    "start_date_canada_sales": "1992-01"
+}

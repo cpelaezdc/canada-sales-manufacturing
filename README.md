@@ -26,12 +26,13 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 5.  Visualisation - PowerBI
 6.  Environments - Docker
 
+
 ## Data Model
 ![DataModel](/Data_model/data_model.png)
 
 ## Environments
-*  Airflow [docker-compose.yml](Docker/airflow/docker-compose.yml)
-*  PosgreSQL [docker-compose.yml](Docker/postgresql/docker-compose.yml) 
+*  Airflow [docker-compose.yml](docker-compose.yml)
+*  PosgreSQL [docker-compose.yml](docker-compose.yml) 
 
 ## Scripts
 *  [Dags](Docker/airflow/dags/)
@@ -42,7 +43,7 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 ![Dashboard](Visualisation/dashboard_powerBI_1.png)
 
 ## Dataset Used
-*  Dataset 16100048.csv - [datasets.zip](Datasets/datasets.zip)
+*  Dataset 16100048.csv - [datasets.zip](datasets/datasets.zip)
 
 ## Data Sources
 -  Gouverment of Canada - https://open.canada.ca/data/en/dataset/ad32210b-e18b-4a4f-9305-7cea2002b737

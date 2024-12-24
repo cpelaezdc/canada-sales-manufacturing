@@ -288,5 +288,19 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  postgres_datawarehouse:
+    image: postgres:latest
+    container_name: postgres_canada-sales
+    ports:
+      - 5434:5432
+    volumes:
+      - ./postgres-datawarehouse:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=canadasales
+
+
 volumes:
   postgres-db-volume:
+  postgres-datawarehouse:   

@@ -1,5 +1,5 @@
-Docker/airflow/logs/*
-Docker/postgresql/postgres-data/*
+postgres-datawarehouse/*
+logs/*
 
 *.csv
 *.pyc
