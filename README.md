@@ -35,12 +35,17 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 *  PosgreSQL [docker-compose.yml](docker-compose.yml) 
 
 ## Scripts
-*  [Dags](Docker/airflow/dags/)
+*  [Dags](dags/)
 
 ## Visualisations
 * Canada Sales [Canada_Manufacturing_Sales](Visualisation/)
 
-![Dashboard](Visualisation/dashboard_powerBI_1.png)
+![Main](Visualisation/dashboard_powerBI_1.png)
+![Sectors](Visualisation/Sectors.png)
+
+## Airflow Pipeline
+![Pipeline](airflow_pipeline.png)
+
 
 ## Dataset Used
 *  Dataset 16100048.csv - [datasets.zip](datasets/datasets.zip)
