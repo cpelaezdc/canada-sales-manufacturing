@@ -1,5 +1,7 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.sensors.filesystem import FileSensor
+from airflow.models import Variable
 from airflow.utils.task_group import TaskGroup
 from airflow.models import DAG
 from datetime import timedelta,datetime
@@ -7,18 +9,44 @@ from tasks.create_postgres_table import create_postgres_table
 from tasks.load import load_file_log, load_data, load_sales
 from tasks.transform import transform_naics, transform_provinces, transform_sales, transform_seasonal_adjustment
 from tasks.extract import load_file_into_dataframe, extract_sales
-from tasks.utils import clean_directory
-from tasks.dictionaries import dim_file_log_schema, dim_province_schema, dim_naics_schema, dim_seasonal_adjustment_schema, fact_sales_schema, column_mapping_seasonal_adjustments, column_mapping_province, column_mapping_naics, column_mapping_sales
+from tasks.utils import *
+from tasks.dictionaries import *
+
 
 DATASOURCE = "/opt/airflow/datasets"
+csv_input_folder = Variable.get("csv_input_folder")
 
 with DAG(
     dag_id='pipeline_canada_sales',
     start_date=datetime.now(),
     schedule_interval=timedelta(seconds=20),
+    description="A pipeline to execute whene files exists in folder",
     catchup=False,
     max_active_runs=1
 ) as dag:
+    
+    file_sensor = FileSensor(
+        task_id='file_sensor',
+        filepath= os.path.join(csv_input_folder, '*.csv'),
+        poke_interval=20,
+    )
+  
+    with TaskGroup("ETL_sales") as ETL_sales:
+
+        extract_sales = PythonOperator(
+            task_id='extract_sales',
+            python_callable=extract_sales,
+            op_kwargs={'columns_to_load': ['REF_DATE','GEO','DGUID','Seasonal adjustment','North American Industry Classification System (NAICS)','VALUE']}
+        )
+
+        transform_sales = PythonOperator (
+            task_id='transform_sales',
+            python_callable=transform_sales,
+            op_kwargs={'prior_task': 'ETL_sales.extract_sales',
+                       'column_mapping': column_mapping_sales}
+        )
+
+        extract_sales >> transform_sales
 
     with TaskGroup("create_tables") as create_tables:
         create_file_log_table = create_postgres_table(dag,"dim_file_log",dim_file_log_schema)
@@ -90,22 +118,7 @@ with DAG(
 
         transform_naics >> load_naics
 
-    with TaskGroup("ETL_sales") as ETL_sales:
-
-        extract_sales = PythonOperator(
-            task_id='extract_sales',
-            python_callable=extract_sales,
-            op_kwargs={'columns_to_load': ['REF_DATE','GEO','DGUID','Seasonal adjustment','North American Industry Classification System (NAICS)','VALUE']}
-        )
-
-        transform_sales = PythonOperator (
-            task_id='transform_sales',
-            python_callable=transform_sales,
-            op_kwargs={'prior_task': 'ETL_sales.extract_sales',
-                       'column_mapping': column_mapping_sales}
-        )
-
-        extract_sales >> transform_sales
+    
 
     load_sales = PythonOperator(
             task_id='load_sales',
@@ -130,7 +143,7 @@ with DAG(
         )
 
    
-    create_tables >> ETL_sales >> [ETL_provinces, ETL_naics,ETL_seasonal_adjustment] >> load_sales >> load_file_log >> clean_directory
+    file_sensor >> ETL_sales >> create_tables >> [ETL_provinces, ETL_naics,ETL_seasonal_adjustment] >> load_sales >> load_file_log >> clean_directory
     
   
 with DAG(
