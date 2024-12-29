@@ -14,7 +14,10 @@ from tasks.dictionaries import *
 
 
 DATASOURCE = "/usr/local/airflow/datasets"
-csv_input_folder = Variable.get("csv_input_folder")
+#csv_input_folder = Variable.get("csv_input_folder")
+start_date_canada_sales = Variable.get('PARAMETERS', deserialize_json=True)['start_date_canada_sales']
+dataset_canada_sales = Variable.get('PARAMETERS', deserialize_json=True)['dataset_canada_sales']
+csv_input_folder = Variable.get('PARAMETERS', deserialize_json=True)['csv_input_folder']
 
 with DAG(
     dag_id='pipeline_canada_sales',
@@ -36,7 +39,8 @@ with DAG(
         extract_sales = PythonOperator(
             task_id='extract_sales',
             python_callable=extract_sales,
-            op_kwargs={'columns_to_load': ['REF_DATE','GEO','DGUID','Seasonal adjustment','North American Industry Classification System (NAICS)','VALUE']}
+            op_kwargs={'csv_input_folder': csv_input_folder,
+                       'columns_to_load': ['REF_DATE','GEO','DGUID','Seasonal adjustment','North American Industry Classification System (NAICS)','VALUE']}
         )
 
         transform_sales = PythonOperator (
@@ -157,7 +161,9 @@ with DAG(
     load_file_into_dataframe = PythonOperator(
         task_id='load_file_into_dataframe',
         python_callable=load_file_into_dataframe,
-        op_kwargs={'directory_dataset': DATASOURCE}
+        op_kwargs={'start_date_canada_sales': start_date_canada_sales,
+                   'directory_dataset': f'{DATASOURCE}/{dataset_canada_sales}',
+                   'csv_input_folder': csv_input_folder}
         
     )
     

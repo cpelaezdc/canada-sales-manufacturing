@@ -2,24 +2,21 @@ from airflow.models import Variable
 import pandas as pd
 from tasks.utils import find_oldest_file
 
-def load_file_into_dataframe(directory_dataset):
+def load_file_into_dataframe(directory_dataset,start_date_canada_sales,csv_input_folder,**kwargs):
     """Loads a CSV file into a Pandas DataFrame.
 
     Args:
         file_path (str): The path to the CSV file.
     """
-
-    csv_input_folder = Variable.get("csv_input_folder")
-
-    df = pd.read_csv(f'{directory_dataset}/{Variable.get("dataset_canada_sales")}')
+    df = pd.read_csv(f'{directory_dataset}')
     print(df.head(2))
-
+    
     # Validate if there is a date in airflow variable last_date_canada_sales
     last_date = Variable.get("last_date_canada_sales")
 
     if last_date == '0000-00':
         print("there are not date")
-        last_date = Variable.get("start_date_canada_sales")
+        last_date = start_date_canada_sales
         print(f"last date will be {last_date}")
     else:
         # Take the last date with format yyyy-mm and add 1 month
@@ -49,10 +46,10 @@ def load_file_into_dataframe(directory_dataset):
  
 
 
-def extract_sales(columns_to_load,**kwargs):
+def extract_sales(columns_to_load,csv_input_folder,**kwargs):
     """Extracts data from a CSV file and stores it in XCom."""
     # find in airflow variable the directory where the files are stored
-    path_files = Variable.get("csv_input_folder")
+    path_files = csv_input_folder
     print(f"Path files: {path_files}")
 
     # Get the oldest file in the folder bassed in the file name YYY-MM
