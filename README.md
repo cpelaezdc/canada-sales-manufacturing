@@ -54,6 +54,7 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 -  Gouverment of Canada - https://open.canada.ca/data/en/dataset/ad32210b-e18b-4a4f-9305-7cea2002b737
 -  Statistics Canada - https://www.statcan.gc.ca/en/developers/csv/user-guide
 -  List of all state's in Canada with Latitude and Longitude - https://geokeo.com/database/state/ca/
+-  Astro CLI - https://www.astronomer.io/docs/astro/cli/overview
 
 
 

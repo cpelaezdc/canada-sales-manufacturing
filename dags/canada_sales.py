@@ -13,7 +13,7 @@ from tasks.utils import *
 from tasks.dictionaries import *
 
 
-DATASOURCE = "/opt/airflow/datasets"
+DATASOURCE = "/usr/local/airflow/datasets"
 csv_input_folder = Variable.get("csv_input_folder")
 
 with DAG(
