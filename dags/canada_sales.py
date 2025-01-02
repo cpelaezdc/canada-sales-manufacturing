@@ -1,4 +1,5 @@
 from airflow import DAG
+from airflow.decorators import dag, task
 from airflow.operators.python import PythonOperator
 from airflow.sensors.filesystem import FileSensor
 from airflow.models import Variable
@@ -8,9 +9,10 @@ from datetime import timedelta,datetime
 from tasks.create_postgres_table import create_postgres_table
 from tasks.load import load_file_log, load_data, load_sales
 from tasks.transform import transform_naics, transform_provinces, transform_sales, transform_seasonal_adjustment
-from tasks.extract import load_file_into_dataframe, extract_sales
+from tasks.extract import extract_sales
 from tasks.utils import *
 from tasks.dictionaries import *
+import pandas as pd
 
 
 DATASOURCE = "/usr/local/airflow/datasets"
@@ -27,7 +29,7 @@ with DAG(
     catchup=False,
     max_active_runs=1
 ) as dag:
-    
+ 
     file_sensor = FileSensor(
         task_id='file_sensor',
         filepath= os.path.join(csv_input_folder, '*.csv'),
@@ -148,27 +150,4 @@ with DAG(
 
    
     file_sensor >> ETL_sales >> create_tables >> [ETL_provinces, ETL_naics,ETL_seasonal_adjustment] >> load_sales >> load_file_log >> clean_directory
-    
   
-with DAG(
-    dag_id='load_file_into_dataframe',
-    start_date=datetime.now(),
-    schedule_interval=timedelta(seconds=10),
-    catchup=False,
-    max_active_runs=1
-) as dag:
-    
-    load_file_into_dataframe = PythonOperator(
-        task_id='load_file_into_dataframe',
-        python_callable=load_file_into_dataframe,
-        op_kwargs={'start_date_canada_sales': start_date_canada_sales,
-                   'directory_dataset': f'{DATASOURCE}/{dataset_canada_sales}',
-                   'csv_input_folder': csv_input_folder}
-        
-    )
-    
-    load_file_into_dataframe
-
-    
-
-
