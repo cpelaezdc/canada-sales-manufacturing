@@ -34,8 +34,70 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 ![DataModel](/Data_model/data_model.png)
 
 ## Environments
-*  Airflow [docker-compose.yml](docker-compose.yml)
-*  PosgreSQL [docker-compose.yml](docker-compose.yml) 
+
+####  Arflow will we deploy with Astro CLI:
+
+* Create an Astro project (go to directory project to execute this command)
+```bash
+astro dev init
+```
+* To run Astro project locally:
+```bash
+astro dev start
+```
+*  To restart and update with new changes:
+```bash
+astro dev restart
+```
+*  To stop and mremove the Docker Compose containers and volumes:
+```bash
+astro dev stop
+```
+
+*  First time you must import/configure this parameters:
+    *  Import in Airflow/Admin/Variables - [variables.json](variables.json)
+    *  Import not declared in Admin/Variables are declared in .env variable - [.env](.env)
+
+    *  Add Postgress connection in Airflow/Admin/Connections [posgress-connection](assets/img/Admin-Connection.png)
+
+
+####  PosgreSQL Dataware house:
+
+In Docker_Compose_DataWarehouse folder launch [docker-compose](Docker_Compose_DataWarehouse/docker-compose.yml) file.
+
+```yml
+services:
+  postgres_db:
+    image: postgres:latest
+    container_name: postgres_canada-sales
+    ports:
+      - 50432:5432  # Port mapping change because airflow DB use 50432
+    volumes:
+      - ./postgres-datawarehouse:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=canadasales 
+    
+volumes:
+  postgres-datawarehouse:   
+```
+
+* Launch in docker-compose.yml directory:
+
+```bash
+docker compose up -d
+```
+
+*  Users and Password:
+    *  Airflow:   
+        *  User: Admin
+        *  Password: Admin
+    *  Posgres:
+        *  Database: canadasales
+        *  User: postgres
+        *  Password: postgres
+
 
 ## Scripts
 *  [Dags](dags/)
