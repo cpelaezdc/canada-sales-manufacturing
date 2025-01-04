@@ -61,7 +61,7 @@ astro dev stop
 
 ####  PosgreSQL Dataware house:
 
-In Docker_Compose_DataWarehouse folder launch [docker-compose](Docker_Compose_DataWarehouse/docker-compose.yml) file.
+In Docker_Compose_DataWarehouse folder launch [docker-compose](docker_compose_datawarehouse/docker-compose.yml) file.
 
 ```yml
 services:
