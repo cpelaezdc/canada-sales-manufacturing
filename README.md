@@ -34,7 +34,6 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 ![DataModel](/Data_model/data_model.png)
 
 ## Environments
-
 ####  Arflow will we deploy with Astro CLI:
 
 * Create an Astro project (go to directory project to execute this command)
@@ -57,7 +56,6 @@ astro dev stop
 *  First time you must import/configure this parameters:
     *  Import in Airflow/Admin/Variables - [variables.json](variables.json)
     *  Import not declared in Admin/Variables are declared in .env variable - [.env](.env)
-
     *  Add Postgress connection in Airflow/Admin/Connections [posgress-connection](assets/img/Admin-Connection.png)
 
 
@@ -100,7 +98,8 @@ docker compose up -d
 
 
 ## Scripts
-*  [Dags](dags/)
+*  [extract_date.py](dags/extract_date.py)
+*  [canada_sales.py](dags/canada_sales.py)
 
 ## Visualisations
 * Canada Sales [Canada_Manufacturing_Sales](Visualisation/)
