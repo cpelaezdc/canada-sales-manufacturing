@@ -1,4 +1,7 @@
-# Canada Manufacturing sales | Data Engineering Project
+| CSVs | AIRFLOW | POSTGRESQL | DOCKER | POWERBI |
+|---|---|---|---|---| 
+| Data Source | ETL Pipeline | Data Storage | Containerization | Data Visualization |
+
 
 ## Introduction
 
@@ -44,13 +47,13 @@ By automating these data engineering tasks, this pipeline streamlines the data p
 ![Sectors](Visualisation/Sectors.png)
 
 ## Airflow Pipeline
-![Pipeline](airflow_pipeline.png)
+![Pipeline](assets/img/airflow_pipeline.png)
 
 
 ## Dataset Used
 *  Dataset 16100048.csv - [datasets.zip](datasets/datasets.zip)
 
-## Data Sources
+## Project Resources
 -  Gouverment of Canada - https://open.canada.ca/data/en/dataset/ad32210b-e18b-4a4f-9305-7cea2002b737
 -  Statistics Canada - https://www.statcan.gc.ca/en/developers/csv/user-guide
 -  List of all state's in Canada with Latitude and Longitude - https://geokeo.com/database/state/ca/
