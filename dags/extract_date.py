@@ -2,6 +2,7 @@ from airflow.decorators import dag, task
 from datetime import timedelta,datetime
 from airflow.models import Variable
 import pandas as pd
+import os
 
 DATASOURCE = "/usr/local/airflow/datasets"
 
@@ -47,8 +48,15 @@ def extract_date_load_csv():
         # print first five rows
         print(df_last_date.head(5))
 
+        print('test for new directory')
+        # Validate if directory datasets/extraction exists and create it if not
+        if not os.path.exists(dest_folder):
+            os.makedirs(dest_folder)
+            print(f"Directory {dest_folder} created")
+        
         # save to csv file this dataframe with the last date and replace file if exists
         # only if number of rows is greater than 0
+
         if df_last_date.shape[0] > 0:
             df_last_date.to_csv(f'{dest_folder}/{last_date}.csv', index=False)
             # validate that the file was created

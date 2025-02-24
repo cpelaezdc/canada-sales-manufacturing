@@ -1,0 +1,15 @@
+services:
+  postgres_db:
+    image: postgres:latest
+    container_name: postgres_canada-sales
+    ports:
+      - 50432:5432  # Port mapping change because airflow DB use 5432
+    volumes:
+      - ./postgres-datawarehouse:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=canadasales 
+    
+volumes:
+  postgres-datawarehouse:   

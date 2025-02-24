@@ -9,8 +9,7 @@ webserver_config.py
 airflow.cfg
 airflow.db
 
-postgres-datawarehouse/*
-Docker_Compose_DataWareHouse/*
+Docker_Compose_DataWareHouse/postgres-datawarehouse/*
 logs/*
 
 *.csv

@@ -33,6 +33,7 @@ with DAG(
     file_sensor = FileSensor(
         task_id='file_sensor',
         filepath= os.path.join(csv_input_folder, '*.csv'),
+        fs_conn_id='fs_default',
         poke_interval=20,
     )
   
