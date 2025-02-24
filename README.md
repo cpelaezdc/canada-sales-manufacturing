@@ -54,14 +54,48 @@ astro dev stop
 ```
 
 *  First time you must import/configure this parameters:
-    *  Import in Airflow/Admin/Variables - [variables.json](variables.json)
+    *  Import in Airflow/Admin/Variables - [variables.json](variables.json)  or create with Airflow CLI (commands below)
     *  Import not declared in Admin/Variables are declared in .env variable - [.env](.env)
     *  Add Postgress connection in Airflow/Admin/Connections [posgress-connection](assets/img/Admin-Connection.png)
+
+#### Using the Airflow CLI to create variables:
+  * Open Terminal: Open your terminal or command prompt for the docker container named as ***scheduler***
+  * Run the Command: Use the airflow variables set command;  This command sets the variable directly from the command line:
+  ```Bash
+  airflow variables set last_date_canada_sales "0000-00"
+  ```
+  *  Alternatively, you can create the variable using the Airflow User Interface under Admin / Variables.
+
+#### Using the Airflow CLI to create PostgreSQL DataWare House Connection:
+  *  To create the "postgres_canada_sales" connection, you would use this command:
+  ```Bash
+  airflow connections add postgres_canada_sales \
+    --conn-type postgres \
+    --conn-host 192.168.0.75 \
+    --conn-schema canadasales \
+    --conn-login postgres \
+    --conn-password postgres \
+    --conn-port 50432
+  ```
+  *  ***The Host parameter may vary, and therefore requires corresponding updates.***
+
+#### Using the Airflow CLI to create ***fs_default*** Connection (To use with FileSensor):
+*  To create the "fs_default" connection, you would use this command:
+  ```Bash
+  airflow connections add fs_default \
+    --conn-type file
+  ```
+
+
+
+
+
+
 
 
 ####  PosgreSQL Dataware house:
 
-In Docker_Compose_DataWarehouse folder launch [docker-compose](docker_compose_datawarehouse/docker-compose.yml) file.
+In Docker_Compose_DataWarehouse folder launch [docker-compose](Docker_Compose_DataWareHouse/docker-compose.yml) file.
 
 ```yml
 services:
@@ -69,7 +103,7 @@ services:
     image: postgres:latest
     container_name: postgres_canada-sales
     ports:
-      - 50432:5432  # Port mapping change because airflow DB use 50432
+      - 50432:5432  # Port mapping change because airflow DB use 5432
     volumes:
       - ./postgres-datawarehouse:/var/lib/postgresql/data
     environment:
