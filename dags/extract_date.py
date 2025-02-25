@@ -8,7 +8,7 @@ DATASOURCE = "/usr/local/airflow/datasets"
 
 @dag(
     start_date=datetime.now(),
-    schedule_interval=timedelta(seconds=10),
+    schedule_interval=timedelta(seconds=5),
     catchup=False,
     max_active_runs=1
 )
